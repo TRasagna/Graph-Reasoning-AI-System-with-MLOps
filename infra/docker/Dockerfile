@@ -21,7 +21,10 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first for better layer caching
-COPY infra/docker/requirements.txt .
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir typing-extensions==4.12.2
+RUN pip install --no-cache-dir torch==2.8.0+cpu torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

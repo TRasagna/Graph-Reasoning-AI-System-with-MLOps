@@ -7,9 +7,9 @@ import argparse
 import sys
 from pathlib import Path
 import os
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from etl.neo4j_ingestion import setup_sample_database
 from utils.logging import setup_logging, get_logger
@@ -75,8 +75,16 @@ def main():
             logger.info(f"Sample database created: {stats}")
 
         elif args.dataset == "fb15k-237":
-            logger.info("FB15k-237 ingestion not implemented yet")
-            return 1
+            from etl.fb15k_ingestion import ingest_fb15k_237
+            dataset_dir = Path("data/raw/fb15k-237") 
+            ingest_fb15k_237(
+                neo4j_uri,
+                neo4j_username,
+                neo4j_password,
+                dataset_dir,
+                clear_existing=args.clear_existing,
+            )
+
 
         elif args.dataset == "wn18rr":
             logger.info("WN18RR ingestion not implemented yet") 
