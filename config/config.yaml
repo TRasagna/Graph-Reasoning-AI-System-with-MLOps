@@ -1,0 +1,52 @@
+api:
+  cors_origins:
+  - '*'
+  host: 0.0.0.0
+  max_concurrent_requests: 100
+  port: 8000
+  workers: 4
+database:
+  neo4j:
+    database: neo4j
+    password: ${NEO4J_PASSWORD}
+    uri: bolt://localhost:7687
+    username: neo4j
+mlops:
+  experiment_tracking:
+    backend: wandb
+    project_name: kg-reasoning-system
+    tags:
+    - graph-neural-networks
+    - knowledge-graphs
+    - reasoning
+  model_registry:
+    backend: wandb
+    model_name: kg-reasoner
+model:
+  architecture: r-gcn
+  batch_size: 512
+  dropout: 0.2
+  early_stopping_patience: 10
+  embedding_dim: 128
+  hidden_dim: 128
+  learning_rate: 0.001
+  num_bases: 100
+  num_epochs: 100
+  num_layers: 2
+paths:
+  artifacts_dir: ./artifacts
+  data_dir: ./data
+  logs_dir: ./logs
+  models_dir: ./models
+reasoning:
+  explanation_max_tokens: 256
+  explanation_model: perplexity-api
+  max_path_length: 5
+  top_k_paths: 10
+training:
+  contrastive_temperature: 0.1
+  finetune_epochs: 100
+  mask_ratio: 0.15
+  pretrain_epochs: 50
+  test_split: 0.1
+  validation_split: 0.1
