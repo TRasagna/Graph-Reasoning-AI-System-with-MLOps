@@ -54,7 +54,7 @@ services:
     environment:
       - NEO4J_URI=neo4j+s://c49c6bb0.databases.neo4j.io
       - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=y7B0SvlRE7LuF1quZ4t6BdcqhhkheUOB_zr5lO6DWbk
+      - NEO4J_PASSWORD=password123
       - REDIS_URL=redis://redis:6379
       - WANDB_API_KEY=${WANDB_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
