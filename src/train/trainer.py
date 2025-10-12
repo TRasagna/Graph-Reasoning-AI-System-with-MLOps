@@ -14,10 +14,10 @@ import time
 import wandb
 from tqdm import tqdm
 
-from ..models.base_model import TrainableModel
-from ..models.rgcn import RGCNModel, RGCNWithContrastiveLearning
-from ..utils.config import Config
-from ..utils.logging import get_logger
+from models.base_model import TrainableModel
+from models.rgcn import RGCNModel, RGCNWithContrastiveLearning
+from utils.config import Config
+from utils.logging import get_logger
 
 logger = get_logger('training')
 
@@ -340,7 +340,7 @@ def train_model(
     config.model.num_epochs = num_epochs
 
     # Load data
-    from ..utils.database import PyGDataLoader
+    from utils.database import PyGDataLoader
 
     data_loader = PyGDataLoader(Path(data_dir))
     train_data = data_loader.load_data('train')
@@ -377,7 +377,7 @@ def train_model(
     logger.info(f"Training completed. Model saved to {save_dir}")
 
     return {
-        'model_path': str(save_dir / 'best_model.pt'),
+        'model_path': str(save_dir / 'final_model.pt'),
         'training_history': training_history,
         'config': config.to_dict()
     }

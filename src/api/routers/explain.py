@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
 
-from ...utils.logging import get_logger
+from src.utils.logging import get_logger
+from src.api.deps import get_model, get_database
 
 logger = get_logger('api.explain')
 router = APIRouter()
@@ -18,8 +19,8 @@ async def get_reasoning_paths(
     relation: str,
     max_length: int = 3,
     top_k: int = 5,
-    model=Depends(lambda: None),
-    db=Depends(lambda: None)
+    model=Depends(get_model),
+    db=Depends(get_database)
 ):
     """Get reasoning paths for a prediction."""
     try:

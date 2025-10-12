@@ -13,11 +13,11 @@ import torch
 import logging
 
 # Import local modules
-from ..utils.config import Config, get_config
-from ..utils.database import Neo4jConnection
-from ..utils.logging import setup_logging, get_logger
-from ..models.rgcn import RGCNModel
-from .routers import predict, graph, explain
+from src.utils.config import Config, get_config
+from src.utils.database import Neo4jConnection
+from src.utils.logging import setup_logging, get_logger
+from src.models.rgcn import RGCNModel
+from src.api.routers import predict, graph, explain
 
 # Setup logging
 setup_logging()
@@ -27,6 +27,8 @@ logger = get_logger('api')
 MODEL = None
 DATABASE = None
 CONFIG = None
+MODEL_PATH_ATTEMPTED = None
+MODEL_LOAD_ERROR = None
 
 
 @asynccontextmanager
@@ -48,17 +50,43 @@ async def lifespan(app: FastAPI):
             database=CONFIG.database.neo4j_database
         )
 
-        # Load model if available
-        model_path = Path(CONFIG.paths.models_dir) / "best_model.pt"
-        if model_path.exists():
+        # Load model if available. Support models saved in timestamped subdirectories
+        models_dir = Path(CONFIG.paths.models_dir)
+        model_path = None
+
+        if models_dir.exists():
+            # Prefer explicit best_model.pt, then final_model.pt, otherwise pick newest .pt
+            best_candidates = list(models_dir.rglob('best_model.pt'))
+            final_candidates = list(models_dir.rglob('final_model.pt'))
+            all_candidates = best_candidates + final_candidates + list(models_dir.rglob('*.pt'))
+
+            if all_candidates:
+                # pick the most recently modified candidate
+                model_path = max(all_candidates, key=lambda p: p.stat().st_mtime)
+
+        if model_path and model_path.exists():
             try:
                 MODEL, _ = RGCNModel.load_model(model_path)
                 MODEL.eval()
+                MODEL_PATH_ATTEMPTED = str(model_path)
+                MODEL_LOAD_ERROR = None
                 logger.info(f"Model loaded from {model_path}")
             except Exception as e:
-                logger.warning(f"Failed to load model: {e}")
+                MODEL_PATH_ATTEMPTED = str(model_path)
+                MODEL_LOAD_ERROR = str(e)
+                logger.warning(f"Failed to load model from {model_path}: {e}")
         else:
-            logger.warning(f"Model not found at {model_path}")
+            MODEL_PATH_ATTEMPTED = str(models_dir)
+            MODEL_LOAD_ERROR = "no_checkpoint_found"
+            logger.warning(f"No model checkpoint found under {models_dir}")
+
+        # Expose objects to app.state for dependency injection
+        try:
+            app.state.model = MODEL
+            app.state.database = DATABASE
+            app.state.config = CONFIG
+        except Exception:
+            pass
 
         logger.info("KG Reasoning API started successfully")
 
@@ -72,6 +100,14 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down KG Reasoning API")
     if DATABASE:
         DATABASE.close()
+
+    # Clear app.state entries
+    try:
+        app.state.model = None
+        app.state.database = None
+        app.state.config = None
+    except Exception:
+        pass
 
 
 # Create FastAPI app
@@ -113,26 +149,9 @@ def get_app_config():
     return CONFIG
 
 # Include routers
-app.include_router(
-    predict.router,
-    prefix="/api/v1/predict",
-    tags=["prediction"],
-    dependencies=[Depends(get_model), Depends(get_database)]
-)
-
-app.include_router(
-    graph.router,
-    prefix="/api/v1/graph",
-    tags=["graph"],
-    dependencies=[Depends(get_database)]
-)
-
-app.include_router(
-    explain.router,
-    prefix="/api/v1/explain",
-    tags=["explanation"],
-    dependencies=[Depends(get_model), Depends(get_database)]
-)
+app.include_router(predict.router, prefix="/api/v1/predict", tags=["prediction"])
+app.include_router(graph.router, prefix="/api/v1/graph", tags=["graph"])
+app.include_router(explain.router, prefix="/api/v1/explain", tags=["explanation"])
 
 
 @app.get("/health")
@@ -146,6 +165,13 @@ async def health_check():
         "database_connected": DATABASE is not None
     }
 
+    # Add model diagnostics
+    try:
+        status['model_path_attempted'] = MODEL_PATH_ATTEMPTED
+        status['model_load_error'] = MODEL_LOAD_ERROR
+    except Exception:
+        pass
+
     if DATABASE:
         try:
             stats = DATABASE.get_graph_statistics()
@@ -154,6 +180,57 @@ async def health_check():
             status["database_error"] = str(e)
 
     return status
+
+
+@app.get("/debug/routes")
+async def list_routes():
+    """Return a list of registered routes (path and methods) for debugging."""
+    routes = []
+    for r in app.routes:
+        try:
+            methods = list(r.methods) if hasattr(r, 'methods') and r.methods else []
+            routes.append({
+                'path': getattr(r, 'path', str(r)),
+                'name': getattr(r, 'name', None),
+                'methods': methods
+            })
+        except Exception:
+            continue
+    return {'routes': routes}
+
+
+@app.get("/debug/mappings")
+async def debug_mappings():
+    """Return a small diagnostic snapshot of database entity/relation mappings."""
+    try:
+        db = getattr(app.state, 'database', None)
+        if db is None:
+            return {"error": "database not available"}
+
+        # Try to access mapping attributes
+        etoi = getattr(db, '_entity_to_id', None)
+        itoe = getattr(db, '_id_to_entity', None)
+        rtoi = getattr(db, '_relation_to_id', None)
+        itor = getattr(db, '_id_to_relation', None)
+
+        def sample_keys(d, n=50):
+            if not d:
+                return []
+            keys = list(d.keys())
+            return keys[:n]
+
+        return {
+            'num_entities': len(etoi) if etoi is not None else 0,
+            'sample_entities': sample_keys(etoi),
+            'num_relations': len(rtoi) if rtoi is not None else 0,
+            'sample_relations': sample_keys(rtoi),
+            'db_build_mappings_info': {
+                'entity_map_present': etoi is not None,
+                'relation_map_present': rtoi is not None
+            }
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/info")

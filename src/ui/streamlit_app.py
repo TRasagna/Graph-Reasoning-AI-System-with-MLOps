@@ -12,11 +12,14 @@ import json
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+# Add src directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Now you can import utils
 from utils.config import Config
 from utils.logging import setup_logging, get_logger
+
 
 # Configure page
 st.set_page_config(
@@ -32,13 +35,13 @@ logger = get_logger('ui.streamlit')
 
 # Configuration
 config = Config()
-API_BASE_URL = f"http://{config.api.host}:{config.api.port}"
+API_BASE_URL = f"http://127.0.0.1:{config.api.port}"
 
 
 def check_api_health():
     """Check if API is running."""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        response = requests.get(f"{API_BASE_URL}/health", timeout=30)
         return response.status_code == 200, response.json()
     except Exception as e:
         return False, {"error": str(e)}
@@ -97,6 +100,14 @@ def main():
             if "model_loaded" in health_data:
                 model_status = "✅ Loaded" if health_data["model_loaded"] else "❌ Not loaded"
                 st.info(f"Model: {model_status}")
+                # Show diagnostics when model not loaded
+                if not health_data["model_loaded"]:
+                    attempted = health_data.get('model_path_attempted')
+                    load_err = health_data.get('model_load_error')
+                    if attempted:
+                        st.write(f"Attempted model path: `{attempted}`")
+                    if load_err:
+                        st.error(f"Model load error: {load_err}")
             if "database_connected" in health_data:
                 db_status = "✅ Connected" if health_data["database_connected"] else "❌ Disconnected"
                 st.info(f"Database: {db_status}")

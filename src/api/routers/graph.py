@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import logging
 
-from ...utils.logging import get_logger
+from src.utils.logging import get_logger
+from src.api.deps import get_database
 
 logger = get_logger('api.graph')
 router = APIRouter()
@@ -18,7 +19,7 @@ async def get_subgraph(
     entity_name: str,
     max_hops: int = 2,
     max_nodes: int = 50,
-    db=Depends(lambda: None)
+    db=Depends(get_database)
 ):
     """Get subgraph around an entity."""
     try:
@@ -45,7 +46,7 @@ async def get_subgraph(
 
 
 @router.get("/stats")
-async def get_graph_stats(db=Depends(lambda: None)):
+async def get_graph_stats(db=Depends(get_database)):
     """Get graph statistics."""
     try:
         stats = db.get_graph_statistics()

@@ -10,7 +10,7 @@ from torch_geometric.nn import RGCNConv
 from typing import Optional, Tuple, Dict, Any
 import logging
 
-from .base_model import TrainableModel
+from src.models.base_model import TrainableModel
 
 logger = logging.getLogger(__name__)
 

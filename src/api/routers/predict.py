@@ -9,7 +9,8 @@ import torch
 import logging
 import time
 
-from ...utils.logging import get_logger
+from src.api.deps import get_model, get_database
+from src.utils.logging import get_logger
 
 logger = get_logger('api.predict')
 router = APIRouter()
@@ -45,27 +46,35 @@ class LinkPredictionResponse(BaseModel):
 @router.post("/link", response_model=LinkPredictionResponse)
 async def predict_link(
     request: LinkPredictionRequest,
-    model=Depends(lambda: None),  # Will be injected by main app
-    db=Depends(lambda: None)      # Will be injected by main app  
+    model=Depends(get_model),  # injected from app.state
+    db=Depends(get_database)      # injected from app.state  
 ):
     """Predict missing links in the knowledge graph."""
     try:
+        logger.info(f"Received predict request: head={request.head_entity}, relation={request.relation}, top_k={request.top_k}")
         start_time = time.time()
 
         # Get entity and relation IDs
         head_id = db.get_entity_id(request.head_entity)
         rel_id = db.get_relation_id(request.relation)
 
+        logger.info(f"Resolved IDs -> head_id: {head_id}, rel_id: {rel_id}")
+
         if head_id is None:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Entity '{request.head_entity}' not found"
+            # Add a more helpful error message to guide debugging
+            msg = (
+                f"Entity '{request.head_entity}' not found in database mappings. "
+                "Check that the entity exists in Neo4j and that node label/property names match the ingestion code."
             )
+            logger.warning(msg)
+            raise HTTPException(status_code=404, detail=msg)
         if rel_id is None:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Relation '{request.relation}' not found"
+            msg = (
+                f"Relation '{request.relation}' not found in database mappings. "
+                "Check that relation types exist in Neo4j and that relation naming matches ingestion."
             )
+            logger.warning(msg)
+            raise HTTPException(status_code=404, detail=msg)
 
         # Get graph data
         edge_index, edge_type = db.get_graph_data()
@@ -153,8 +162,8 @@ async def predict_link(
 async def find_similar_entities(
     entity_name: str,
     top_k: int = 10,
-    model=Depends(lambda: None),
-    db=Depends(lambda: None)
+    model=Depends(get_model),
+    db=Depends(get_database)
 ):
     """Find entities similar to the given entity based on embeddings."""
     try:
@@ -203,7 +212,7 @@ async def find_similar_entities(
 @router.get("/relations/{entity_name}")
 async def get_entity_relations(
     entity_name: str,
-    db=Depends(lambda: None)
+    db=Depends(get_database)
 ):
     """Get all relations connected to a specific entity."""
     try:
