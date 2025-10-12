@@ -84,10 +84,65 @@ class BaseGraphModel(nn.Module, ABC):
         # Override with any provided kwargs
         model_config.update(kwargs)
 
-        model = cls(**model_config)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        # Defensive: if the saved state_dict encodes a different number of
+        # relation types (e.g., due to mismatched DB mappings at save/load),
+        # prefer the shape encoded in the state_dict so we can instantiate a
+        # model with matching parameter shapes before calling load_state_dict.
+        try:
+            state = checkpoint.get('model_state_dict', {})
+            # Try relation_embeddings first (most explicit)
+            rel_key = None
+            for k in state.keys():
+                if k.endswith('relation_embeddings.weight') or k == 'relation_embeddings.weight':
+                    rel_key = k
+                    break
 
-        logger.info(f"Model loaded from {path}")
+            inferred_relations = None
+            if rel_key is not None:
+                inferred_relations = state[rel_key].size(0)
+            else:
+                # Fallback: inspect RGCN internal 'comp' parameter shapes which
+                # are typically [num_relations, num_bases]
+                for k in state.keys():
+                    if '.comp' in k and 'rgcn_layers' in k:
+                        try:
+                            inferred_relations = state[k].size(0)
+                            break
+                        except Exception:
+                            continue
+
+            if inferred_relations is not None and model_config.get('num_relations') != inferred_relations:
+                logger.warning(
+                    f"Checkpoint model_config.num_relations={model_config.get('num_relations')} "
+                    f"differs from state_dict-inferred relations={inferred_relations}. "
+                    "Overriding model_config to match the checkpoint shapes to allow loading."
+                )
+                model_config['num_relations'] = int(inferred_relations)
+        except Exception as e:
+            logger.warning(f"Failed to infer relation count from checkpoint state: {e}")
+
+        model = cls(**model_config)
+        state_dict = checkpoint['model_state_dict']
+
+        # First try strict loading. If that fails due to shape mismatches
+        # (common when DB mappings differ from training), attempt a non-strict
+        # load so compatible parameters are restored and incompatible ones
+        # remain initialized.
+        try:
+            model.load_state_dict(state_dict)
+            logger.info(f"Model loaded from {path} (strict)")
+        except RuntimeError as e:
+            logger.warning(f"Strict state_dict load failed: {e}")
+            try:
+                load_result = model.load_state_dict(state_dict, strict=False)
+                # load_result is a NamedTuple with missing_keys and unexpected_keys
+                missing = getattr(load_result, 'missing_keys', None)
+                unexpected = getattr(load_result, 'unexpected_keys', None)
+                logger.info(f"Model partially loaded from {path} (non-strict). Missing keys: {missing}; Unexpected keys: {unexpected}")
+            except Exception as e2:
+                logger.error(f"Failed to load state_dict even with strict=False: {e2}")
+                raise
+
         return model, checkpoint.get('metadata', {})
 
     def count_parameters(self) -> int:

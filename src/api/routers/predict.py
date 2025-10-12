@@ -76,6 +76,21 @@ async def predict_link(
             logger.warning(msg)
             raise HTTPException(status_code=404, detail=msg)
 
+        # Validate relation id is within the model's expected range. It's
+        # common for the DB to expose a different set/order of relation types
+        # than the model was trained on. If the relation id is out-of-bounds,
+        # return a clear error instead of letting an indexing error propagate.
+        if hasattr(model, 'num_relations') and rel_id >= getattr(model, 'num_relations'):
+            msg = (
+                f"Relation id {rel_id} for '{request.relation}' is out of range for the loaded model. "
+                f"Model supports {model.num_relations} relation types but the database mapping has at least {rel_id + 1}. "
+                "This usually means the Neo4j relation type ordering or set doesn't match the mapping used when the model was trained. "
+                "Remedies: re-ingest/align relation ids to match the training mapping, or re-train the model on the current database relation set. "
+                "You can GET /debug/mappings to inspect DB relation strings and counts."
+            )
+            logger.error(msg)
+            raise HTTPException(status_code=400, detail=msg)
+
         # Get graph data
         edge_index, edge_type = db.get_graph_data()
 

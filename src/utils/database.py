@@ -55,8 +55,14 @@ class Neo4jConnection:
         try:
             with self._driver.session(database=self.database) as session:
                 # Build entity mappings
-                result = session.run("MATCH (e:Entity) RETURN e.id as entity_id ORDER BY e.id")
+                result = session.run(
+                    "MATCH (e:Entity) RETURN COALESCE(e.id, e.name) as entity_id "
+                    "ORDER BY COALESCE(e.id, e.name)"
+                )
                 entities = [record["entity_id"] for record in result]
+                # Filter out null/None identifiers which may appear if nodes
+                # don't have either property set.
+                entities = [e for e in entities if e is not None]
 
                 self._entity_to_id = {entity: idx for idx, entity in enumerate(entities)}
                 self._id_to_entity = {idx: entity for idx, entity in enumerate(entities)}
@@ -79,7 +85,33 @@ class Neo4jConnection:
 
     def get_entity_id(self, entity_name: str) -> Optional[int]:
         """Get entity ID from name."""
-        return self._entity_to_id.get(entity_name)
+        eid = self._entity_to_id.get(entity_name)
+        if eid is not None:
+            return eid
+
+        # Fallback: try a direct DB lookup for entities that weren't in the
+        # in-memory mapping (possible if the DB was updated after mapping
+        # build or ingestion used a different property). If found, add it to
+        # the mapping with the next available index.
+        try:
+            with self._driver.session(database=self.database) as session:
+                result = session.run(
+                    "MATCH (e:Entity) WHERE COALESCE(e.id, e.name) = $entity_name "
+                    "RETURN COALESCE(e.id, e.name) as entity_id LIMIT 1",
+                    entity_name=entity_name
+                )
+                record = result.single()
+                if record and record.get('entity_id') is not None:
+                    ent = record['entity_id']
+                    new_idx = len(self._entity_to_id)
+                    self._entity_to_id[ent] = new_idx
+                    self._id_to_entity[new_idx] = ent
+                    logger.info(f"Dynamically added entity mapping: {ent} -> {new_idx}")
+                    return new_idx
+        except Exception as e:
+            logger.debug(f"DB lookup for entity '{entity_name}' failed: {e}")
+
+        return None
 
     def get_entity_name(self, entity_id: int) -> Optional[str]:
         """Get entity name from ID."""
@@ -99,7 +131,9 @@ class Neo4jConnection:
             with self._driver.session(database=self.database) as session:
                 result = session.run("""
                     MATCH (h:Entity)-[r:RELATION]->(t:Entity)
-                    RETURN h.id as head, r.type as relation, t.id as tail
+                    RETURN COALESCE(h.id, h.name) as head,
+                           r.type as relation,
+                           COALESCE(t.id, t.name) as tail
                 """)
 
                 edges = []
@@ -153,8 +187,9 @@ class Neo4jConnection:
 
         with self._driver.session(database=self.database) as session:
             result = session.run("""
-                MATCH (e:Entity {id: $entity_name})-[r:RELATION]-(other:Entity)
-                RETURN r.type as relation, other.id as connected_entity,
+                MATCH (e:Entity)-[r:RELATION]-(other:Entity)
+                WHERE COALESCE(e.id, e.name) = $entity_name
+                RETURN r.type as relation, COALESCE(other.id, other.name) as connected_entity,
                        CASE WHEN startNode(r) = e THEN 'outgoing' ELSE 'incoming' END as direction
                 LIMIT 100
             """, entity_name=entity_name)
@@ -168,6 +203,8 @@ class Neo4jConnection:
                 })
 
             return relations
+
+    
 
 
 class PyGDataLoader:
