@@ -6,7 +6,7 @@ services:
     image: neo4j:5.13-community
     container_name: kg-neo4j
     environment:
-      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_security_procedures_allowlist=apoc.*
@@ -23,7 +23,7 @@ services:
       - kg-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password123", "RETURN 1"]
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", ${NEO4J_PASSWORD}, "RETURN 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -52,9 +52,9 @@ services:
       dockerfile: "Dockerfile"
     container_name: kg-reasoner-api
     environment:
-      - NEO4J_URI=neo4j+s://c49c6bb0.databases.neo4j.io
+      - NEO4J_URI=${NEO4J_URI}
       - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=password123
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - REDIS_URL=redis://redis:6379
       - WANDB_API_KEY=${WANDB_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
